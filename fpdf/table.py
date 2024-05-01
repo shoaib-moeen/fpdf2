@@ -501,6 +501,7 @@ class Table:
                     wrapmode=self._wrapmode,
                     padding=padding,
                     link=cell.link,
+                    page_break_buffer=10,
                     **kwargs,
                 )
 
@@ -510,6 +511,33 @@ class Table:
 
         do_pagebreak = page_break_text or page_break_image
 
+        if do_pagebreak and not height_query_only:
+            row_info = list(self._process_rowpans_entries())
+            if self._num_heading_rows:
+                self._fpdf.y = self._fpdf.t_margin
+                x1 = self._fpdf.x - col_width
+                y1 = self._fpdf.y
+                x2 = (
+                    self._fpdf.x
+                )  # already includes gutter for cells spanning multiple columns
+                y2 = y1 + cell_height
+                draw_box_borders(
+                    self._fpdf,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    border=self.get_cell_border(i, j, cell),
+                    fill_color=style.fill_color if style else None,
+                )
+                
+                #the text is being overlapped by the header. add some margin at the top of the text when page break
+                for row_idx in range(self._num_heading_rows):
+                    self._render_table_row(
+                        row_idx,
+                        row_info[row_idx],
+                        cell_x_positions=cell_x_positions,
+                    )
         return do_pagebreak, img_height, cell_height
 
     def _get_col_width(self, i, j, colspan=1):

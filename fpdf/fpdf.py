@@ -3417,6 +3417,7 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
                 h,
                 self.page_break_trigger,
             )
+
             self._perform_page_break()
             return True
         return False
@@ -3481,6 +3482,7 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
         output=MethodReturnValue.PAGE_BREAK,
         center=False,
         padding=0,
+        page_break_buffer=0,
     ):
         """
         This method allows printing text with line breaks. They can be automatic
@@ -3587,7 +3589,6 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
         new_x = XPos.coerce(new_x)
         new_y = YPos.coerce(new_y)
         if ln != "DEPRECATED":
-            # For backwards compatibility, if "ln" is used we overwrite "new_[xy]".
             if ln == 0:
                 new_x = XPos.RIGHT
                 new_y = YPos.NEXT
@@ -3697,12 +3698,13 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
 
         for text_line_index, text_line in enumerate(text_lines):
             page_break_required = self.will_page_break(h + padding.bottom)
+            #when the page breaks print the headers on the new page
             if page_break_required:
                 page_break_triggered = True
                 x = self.x
                 self.add_page(same=True)
                 self.x = x
-                self.y += padding.top
+                self.y += padding.top + page_break_buffer
 
             if box_required and (text_line_index == 0 or page_break_required):
                 # estimate how many cells can fit on this page
