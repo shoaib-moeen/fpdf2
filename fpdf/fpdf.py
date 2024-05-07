@@ -2880,6 +2880,59 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
             link=link,
             center=center,
         )
+    
+
+
+    def _rotated_rectangle_dimensions(self, x1, y1, x2, y2, angle):
+
+        #get the center point of rectangle using x1,y1,x2,y2
+        cx = (x1 + x2) / 2
+        cy = (y1 + y2) / 2
+
+        #calculate half the width and height of the rectangle
+        half_width = abs(x2 - x1) / 2
+        half_height = abs(y2 - y1) / 2
+
+        #convert angle into radians
+        angle_radians = math.radians(angle)
+
+        #calculate sin and cosin of angle
+        sin_angle = math.sin(angle_radians)
+        cos_angle = math.cos(angle_radians)
+
+        #Calculate the coordinates of the corners after rotation
+        x1r = (x1 - cx) * cos_angle - (y1 - cy) * sin_angle + cx
+        y1r = (x1 - cx) * sin_angle + (y1 - cy) * cos_angle + cy
+
+        x2r = (x2 - cx) * cos_angle - (y1 - cy) * sin_angle + cx
+        y2r = (x2 - cx) * sin_angle + (y1 - cy) * cos_angle + cy
+
+        x3r = (x2 - cx) * cos_angle - (y2 - cy) * sin_angle + cx
+        y3r = (x2 - cx) * sin_angle + (y2 - cy) * cos_angle + cy
+
+        x4r = (x1 - cx) * cos_angle - (y2 - cy) * sin_angle + cx
+        y4r = (x1 - cx) * sin_angle + (y2 - cy) * cos_angle + cy
+
+        #calculate minimum and maximum x and y from x1r,y1r and so on
+        min_x = min(x1r, x2r, x3r, x4r)
+        max_x = max(x1r, x2r, x3r, x4r)
+        min_y = min(y1r, y2r, y3r, y4r)
+        max_y = max(y1r, y2r, y3r, y4r)
+
+        #calculate the width and height of rectangle using min_x,min_y and max_x and max_y using distance formula
+
+
+
+        #calculate the absolute difference between min_X, max_x and min_y, max_y
+
+        width = abs(max_x - min_x)
+        height = abs(max_y - min_y)
+
+        #min_x and max_x are endpoints of a line calculate the midpoint of line        
+        mid_x = (min_x + max_x) / 2
+        mid_y = (min_y + max_y) / 2
+
+        return width, height, mid_x, mid_y
 
     def _render_styled_text_line(
         self,
@@ -3458,6 +3511,9 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
             # restore writing function:
             del self._out
 
+    #write a function to calculate the new x and y position of a text when rotated by an angle so that the text do not go beyond the dge of the page
+
+
     @check_page
     @support_deprecated_txt_arg
     def multi_cell(
@@ -3481,6 +3537,9 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
         output=MethodReturnValue.PAGE_BREAK,
         center=False,
         padding=0,
+        text_rotation=0,
+        mid_x=0,
+        mid_y=0,
     ):
         """
         This method allows printing text with line breaks. They can be automatic
@@ -3542,8 +3601,11 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
         Returns: a single value or a tuple, depending on the `output` parameter value
         """
 
+
         padding = Padding.new(padding)
         wrapmode = WrapMode.coerce(wrapmode)
+
+
 
         if split_only:
             warnings.warn(
@@ -3627,170 +3689,173 @@ class FPDF(GraphicsStateMixin, TextRegionMixin):
         # Store the starting position before applying padding
         prev_x, prev_y = self.x, self.y
 
-        # Apply padding to contents
-        # decrease maximum allowed width by padding
-        # shift the starting point by padding
-        maximum_allowed_width = w = w - padding.right - padding.left
-        clearance_margins = []
-        # If we don't have padding on either side, we need a clearance margin.
-        if not padding.left:
-            clearance_margins.append(self.c_margin)
-        if not padding.right:
-            clearance_margins.append(self.c_margin)
-        if align != Align.X:
-            self.x += padding.left
-        self.y += padding.top
+        with self.rotation(text_rotation, x=prev_x, y=prev_y):
 
-        # Center overrides padding
-        if center:
-            self.x = (
-                self.w / 2 if align == Align.X else self.l_margin + (self.epw - w) / 2
+            # Apply padding to contents
+            # decrease maximum allowed width by padding
+            # shift the starting point by padding
+            maximum_allowed_width = w = w - padding.right - padding.left
+            clearance_margins = []
+            # If we don't have padding on either side, we need a clearance margin.
+            if not padding.left:
+                clearance_margins.append(self.c_margin)
+            if not padding.right:
+                clearance_margins.append(self.c_margin)
+            if align != Align.X:
+                self.x += padding.left
+            self.y += padding.top
+
+            # Center overrides padding
+            if center:
+                self.x = (
+                    self.w / 2 if align == Align.X else self.l_margin + (self.epw - w) / 2
+                )
+                prev_x = self.x
+
+            # Calculate text length
+            text = self.normalize_text(text)
+            normalized_string = text.replace("\r", "")
+            styled_text_fragments = (
+                self._preload_bidirectional_text(normalized_string, markdown)
+                if self.text_shaping
+                else self._preload_font_styles(normalized_string, markdown)
             )
-            prev_x = self.x
 
-        # Calculate text length
-        text = self.normalize_text(text)
-        normalized_string = text.replace("\r", "")
-        styled_text_fragments = (
-            self._preload_bidirectional_text(normalized_string, markdown)
-            if self.text_shaping
-            else self._preload_font_styles(normalized_string, markdown)
-        )
+            prev_font_style, prev_underline = self.font_style, self.underline
+            total_height = 0
 
-        prev_font_style, prev_underline = self.font_style, self.underline
-        total_height = 0
-
-        text_lines = []
-        multi_line_break = MultiLineBreak(
-            styled_text_fragments,
-            maximum_allowed_width,
-            clearance_margins,
-            align=align,
-            print_sh=print_sh,
-            wrapmode=wrapmode,
-        )
-        text_line = multi_line_break.get_line()
-        while (text_line) is not None:
-            text_lines.append(text_line)
+            text_lines = []
+            multi_line_break = MultiLineBreak(
+                styled_text_fragments,
+                maximum_allowed_width,
+                clearance_margins,
+                align=align,
+                print_sh=print_sh,
+                wrapmode=wrapmode,
+            )
             text_line = multi_line_break.get_line()
+            while (text_line) is not None:
+                text_lines.append(text_line)
+                text_line = multi_line_break.get_line()
 
-        if not text_lines:  # ensure we display at least one cell - cf. issue #349
-            text_lines = [
-                TextLine(
-                    "",
-                    text_width=0,
-                    number_of_spaces=0,
-                    align=align,
-                    height=h,
-                    max_width=w,
-                    trailing_nl=False,
+            if not text_lines:  # ensure we display at least one cell - cf. issue #349
+                text_lines = [
+                    TextLine(
+                        "",
+                        text_width=0,
+                        number_of_spaces=0,
+                        align=align,
+                        height=h,
+                        max_width=w,
+                        trailing_nl=False,
+                    )
+                ]
+
+            if max_line_height is None or len(text_lines) == 1:
+                line_height = h
+            else:
+                line_height = min(h, max_line_height)
+
+            box_required = fill or border
+            page_break_triggered = False
+
+            for text_line_index, text_line in enumerate(text_lines):
+                page_break_required = self.will_page_break(h + padding.bottom)
+                if page_break_required:
+                    page_break_triggered = True
+                    x = self.x
+                    self.add_page(same=True)
+                    self.x = x
+                    self.y += padding.top
+
+                if box_required and (text_line_index == 0 or page_break_required):
+                    # estimate how many cells can fit on this page
+                    top_gap = self.y + padding.top
+                    bottom_gap = padding.bottom + self.b_margin
+                    lines_before_break = int((self.h - top_gap - bottom_gap) // line_height)
+                    # check how many cells should be rendered
+                    num_lines = min(lines_before_break, len(text_lines) - text_line_index)
+                    box_height = max(
+                        h - text_line_index * line_height, num_lines * line_height
+                    )
+                    # render the box
+                    x = self.x - (w / 2 if align == Align.X else 0)
+                    draw_box_borders(
+                        self,
+                        x - padding.left,
+                        self.y - padding.top,
+                        x + w + padding.right,
+                        self.y + box_height + padding.bottom,
+                        border,
+                        self.fill_color if fill else None,
+                    )
+                is_last_line = text_line_index == len(text_lines) - 1
+                self._render_styled_text_line(
+                    text_line,
+                    h=line_height,
+                    new_x=new_x if is_last_line else XPos.LEFT,
+                    new_y=new_y if is_last_line else YPos.NEXT,
+                    border=0,  # already rendered
+                    fill=False,  # already rendered
+                    link=link,
+                    padding=Padding(0, padding.right, 0, padding.left),
                 )
-            ]
+                total_height += line_height
+                if not is_last_line and align == Align.X:
+                    # prevent cumulative shift to the left
+                    self.x = prev_x
 
-        if max_line_height is None or len(text_lines) == 1:
-            line_height = h
-        else:
-            line_height = min(h, max_line_height)
+            if total_height < h:
+                # Move to the bottom of the multi_cell
+                if new_y == YPos.NEXT:
+                    self.y += h - total_height
+                total_height = h
 
-        box_required = fill or border
-        page_break_triggered = False
+            if page_break_triggered and new_y == YPos.TOP:
+                # When a page jump is performed and the requested y is TOP,
+                # pretend we started at the top of the text block on the new page.
+                # cf. test_multi_cell_table_with_automatic_page_break
+                prev_y = self.y
 
-        for text_line_index, text_line in enumerate(text_lines):
-            page_break_required = self.will_page_break(h + padding.bottom)
-            if page_break_required:
-                page_break_triggered = True
-                x = self.x
-                self.add_page(same=True)
-                self.x = x
-                self.y += padding.top
+            last_line = text_lines[-1]
+            if last_line and last_line.trailing_nl and new_y in (YPos.LAST, YPos.NEXT):
+                # The line renderer can't handle trailing newlines in the text.
+                self.ln()
 
-            if box_required and (text_line_index == 0 or page_break_required):
-                # estimate how many cells can fit on this page
-                top_gap = self.y + padding.top
-                bottom_gap = padding.bottom + self.b_margin
-                lines_before_break = int((self.h - top_gap - bottom_gap) // line_height)
-                # check how many cells should be rendered
-                num_lines = min(lines_before_break, len(text_lines) - text_line_index)
-                box_height = max(
-                    h - text_line_index * line_height, num_lines * line_height
-                )
-                # render the box
-                x = self.x - (w / 2 if align == Align.X else 0)
-                draw_box_borders(
-                    self,
-                    x - padding.left,
-                    self.y - padding.top,
-                    x + w + padding.right,
-                    self.y + box_height + padding.bottom,
-                    border,
-                    self.fill_color if fill else None,
-                )
-            is_last_line = text_line_index == len(text_lines) - 1
-            self._render_styled_text_line(
-                text_line,
-                h=line_height,
-                new_x=new_x if is_last_line else XPos.LEFT,
-                new_y=new_y if is_last_line else YPos.NEXT,
-                border=0,  # already rendered
-                fill=False,  # already rendered
-                link=link,
-                padding=Padding(0, padding.right, 0, padding.left),
-            )
-            total_height += line_height
-            if not is_last_line and align == Align.X:
-                # prevent cumulative shift to the left
-                self.x = prev_x
+            if new_y == YPos.TOP:  # We may have jumped a few lines -> reset
+                self.y = prev_y
+            elif new_y == YPos.NEXT:  # move down by bottom padding
+                self.y += padding.bottom
 
-        if total_height < h:
-            # Move to the bottom of the multi_cell
-            if new_y == YPos.NEXT:
-                self.y += h - total_height
-            total_height = h
+            if markdown:
+                if self.font_style != prev_font_style:
+                    self.font_style = prev_font_style
+                    self.current_font = self.fonts[self.font_family + self.font_style]
+                self.underline = prev_underline
 
-        if page_break_triggered and new_y == YPos.TOP:
-            # When a page jump is performed and the requested y is TOP,
-            # pretend we started at the top of the text block on the new page.
-            # cf. test_multi_cell_table_with_automatic_page_break
-            prev_y = self.y
+            if new_x == XPos.RIGHT:  # move right by right padding to align outer RHS edge
+                self.x += padding.right
+            elif new_x == XPos.LEFT:  # move left by left padding to align outer LHS edge
+                self.x -= padding.left
 
-        last_line = text_lines[-1]
-        if last_line and last_line.trailing_nl and new_y in (YPos.LAST, YPos.NEXT):
-            # The line renderer can't handle trailing newlines in the text.
-            self.ln()
-
-        if new_y == YPos.TOP:  # We may have jumped a few lines -> reset
-            self.y = prev_y
-        elif new_y == YPos.NEXT:  # move down by bottom padding
-            self.y += padding.bottom
-
-        if markdown:
-            if self.font_style != prev_font_style:
-                self.font_style = prev_font_style
-                self.current_font = self.fonts[self.font_family + self.font_style]
-            self.underline = prev_underline
-
-        if new_x == XPos.RIGHT:  # move right by right padding to align outer RHS edge
-            self.x += padding.right
-        elif new_x == XPos.LEFT:  # move left by left padding to align outer LHS edge
-            self.x -= padding.left
-
-        output = MethodReturnValue.coerce(output)
-        return_value = ()
-        if output & MethodReturnValue.PAGE_BREAK:
-            return_value += (page_break_triggered,)
-        if output & MethodReturnValue.LINES:
-            output_lines = []
-            for text_line in text_lines:
-                characters = []
-                for frag in text_line.fragments:
-                    characters.extend(frag.characters)
-                output_lines.append("".join(characters))
-            return_value += (output_lines,)
-        if output & MethodReturnValue.HEIGHT:
-            return_value += (total_height + padding.top + padding.bottom,)
-        if len(return_value) == 1:
-            return return_value[0]
-        return return_value
+            output = MethodReturnValue.coerce(output)
+            return_value = ()
+            if output & MethodReturnValue.PAGE_BREAK:
+                return_value += (page_break_triggered,)
+            if output & MethodReturnValue.LINES:
+                output_lines = []
+                for text_line in text_lines:
+                    characters = []
+                    for frag in text_line.fragments:
+                        characters.extend(frag.characters)
+                    output_lines.append("".join(characters))
+                return_value += (output_lines,)
+            if output & MethodReturnValue.HEIGHT:
+                new_width, new_height, mx, my = self._rotated_rectangle_dimensions(prev_x, prev_y, prev_x+w, prev_y+h, text_rotation)
+                return_value += (new_height + padding.top + padding.bottom,)
+            if len(return_value) == 1:
+                return return_value[0]
+            return return_value
 
     @check_page
     @support_deprecated_txt_arg
