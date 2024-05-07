@@ -14,6 +14,8 @@ from .enums import (
 from .errors import FPDFException
 from .fonts import CORE_FONTS, FontFace
 from .util import Padding
+import math
+from .line_break import MultiLineBreak
 
 DEFAULT_HEADINGS_STYLE = FontFace(emphasis="BOLD")
 
@@ -381,6 +383,7 @@ class Table:
         #
         # If cell_height is None then we're still in the phase of calculating the height of the cell meaning that
         # we do not need to set fonts & draw borders yet.
+        
 
         if not height_query_only:
             x1 = self._fpdf.x
@@ -485,6 +488,7 @@ class Table:
 
             self._fpdf.y += dy
 
+
             with self._fpdf.use_font_face(style):
                 page_break_text, cell_height = self._fpdf.multi_cell(
                     w=col_width,
@@ -501,6 +505,7 @@ class Table:
                     wrapmode=self._wrapmode,
                     padding=padding,
                     link=cell.link,
+                    text_rotation=cell.text_rotation,
                     **kwargs,
                 )
 
@@ -754,6 +759,7 @@ class Row:
         rowspan=1,
         padding=None,
         link=None,
+        text_rotation=0
     ):
         """
         Adds a cell to the row.
@@ -803,6 +809,7 @@ class Row:
             rowspan,
             padding,
             link,
+            text_rotation,
         )
         self.cells.append(cell)
         return cell
@@ -822,6 +829,7 @@ class Cell:
         "rowspan",
         "padding",
         "link",
+        'text_rotation',
     )
     text: str
     align: Optional[Union[str, Align]]
@@ -833,6 +841,7 @@ class Cell:
     rowspan: int
     padding: Optional[Union[int, tuple, type(None)]]
     link: Optional[Union[str, int]]
+    text_rotation: Optional[int]
 
     def write(self, text, align=None):
         raise NotImplementedError("Not implemented yet")
